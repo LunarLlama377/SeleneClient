@@ -1,0 +1,75 @@
+
+name: Discord Commit Notifications
+
+on:
+  push:
+
+jobs:
+  discord:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send commit notifications
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
+          BRANCH: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          jq -c '.commits[]' "$GITHUB_EVENT_PATH" |
+          while IFS= read -r commit; do
+
+            MESSAGE=$(echo "$commit" | jq -r '.message')
+            AUTHOR=$(echo "$commit" | jq -r '.author.name')
+            HASH=$(echo "$commit" | jq -r '.id')
+            URL=$(echo "$commit" | jq -r '.url')
+
+            PAYLOAD=$(jq -n \
+              --arg message "$MESSAGE" \
+              --arg author "$AUTHOR" \
+              --arg hash "${HASH:0:7}" \
+              --arg url "$URL" \
+              --arg branch "$BRANCH" \
+              --arg repo "$REPOSITORY" \
+              '{
+                embeds: [{
+                  title: "New Commit",
+                  url: $url,
+                  description: ("**" + $message + "**"),
+                  color: 5793266,
+                  fields: [
+                    {
+                      name: "Author",
+                      value: $author,
+                      inline: true
+                    },
+                    {
+                      name: "Branch",
+                      value: $branch,
+                      inline: true
+                    },
+                    {
+                      name: "Commit",
+                      value: $hash,
+                      inline: true
+                    },
+                    {
+                      name: "Repository",
+                      value: $repo,
+                      inline: false
+                    }
+                  ],
+                  footer: {
+                    text: "GitHub Commit Logger"
+                  }
+                }],
+                allowed_mentions: {
+                  parse: []
+                }
+              }')
+
+            curl --fail-with-body -sS \
+              -H "Content-Type: application/json" \
+              -d "$PAYLOAD" \
+              "$DISCORD_WEBHOOK_URL"
+
+          done
